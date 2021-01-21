@@ -1084,6 +1084,10 @@ __DELAY_USW_LOOP:
 	ADD  R31,R0
 	.ENDM
 
+;NAME DEFINITIONS FOR GLOBAL VARIABLES ALLOCATED TO REGISTERS
+	.DEF _topValueToggle=R4
+	.DEF _topValueToggle_msb=R5
+
 	.CSEG
 	.ORG 0x00
 
@@ -1112,6 +1116,21 @@ __START_OF_CODE:
 	JMP  0x00
 	JMP  0x00
 	JMP  0x00
+
+;GLOBAL REGISTER VARIABLES INITIALIZATION
+__REG_VARS:
+	.DB  0x0,0x0
+
+
+__GLOBAL_INI_TBL:
+	.DW  0x02
+	.DW  0x04
+	.DW  __REG_VARS*2
+
+_0xFFFFFFFF:
+	.DW  0
+
+#define __GLOBAL_INI_TBL_PRESENT 1
 
 __RESET:
 	CLI
@@ -1142,6 +1161,29 @@ __CLEAR_SRAM:
 	ST   X+,R30
 	SBIW R24,1
 	BRNE __CLEAR_SRAM
+
+;GLOBAL VARIABLES INITIALIZATION
+	LDI  R30,LOW(__GLOBAL_INI_TBL*2)
+	LDI  R31,HIGH(__GLOBAL_INI_TBL*2)
+__GLOBAL_INI_NEXT:
+	LPM  R24,Z+
+	LPM  R25,Z+
+	SBIW R24,0
+	BREQ __GLOBAL_INI_END
+	LPM  R26,Z+
+	LPM  R27,Z+
+	LPM  R0,Z+
+	LPM  R1,Z+
+	MOVW R22,R30
+	MOVW R30,R0
+__GLOBAL_INI_LOOP:
+	LPM  R0,Z+
+	ST   X+,R0
+	SBIW R24,1
+	BRNE __GLOBAL_INI_LOOP
+	MOVW R30,R22
+	RJMP __GLOBAL_INI_NEXT
+__GLOBAL_INI_END:
 
 ;HARDWARE STACK POINTER INITIALIZATION
 	LDI  R30,LOW(__SRAM_END-__HEAP_SIZE)
@@ -1176,85 +1218,159 @@ __CLEAR_SRAM:
 	#endif
 ;#include <delay.h>
 ;
-;void setupTimer()
-; 0000 0005 {
+;// Global Variables
+;int topValueToggle = 0;
+;
+;void setupTimer(int freq)
+; 0000 0008 {
 
 	.CSEG
 _setupTimer:
 ; .FSTART _setupTimer
-; 0000 0006     TCCR1B = 0x18;
+; 0000 0009     int ICR_Value = 8000000 / 2 / 8 / freq - 1;
+; 0000 000A     topValueToggle = ICR_Value + 1;
+	ST   -Y,R27
+	ST   -Y,R26
+	ST   -Y,R17
+	ST   -Y,R16
+;	freq -> Y+2
+;	ICR_Value -> R16,R17
+	LDD  R30,Y+2
+	LDD  R31,Y+2+1
+	CALL __CWD1
+	__GETD2N 0x7A120
+	CALL __DIVD21
+	SBIW R30,1
+	MOVW R16,R30
+	ADIW R30,1
+	MOVW R4,R30
+; 0000 000B 
+; 0000 000C     // Stop the counter
+; 0000 000D     TCCR1B = 0x18;
 	LDI  R30,LOW(24)
 	OUT  0x2E,R30
-; 0000 0007     TCCR1A = 0x50;
+; 0000 000E 
+; 0000 000F     // in mode 12 CTC
+; 0000 0010     TCCR1A = 0x50;
 	LDI  R30,LOW(80)
 	OUT  0x2F,R30
-; 0000 0008     ICR1H = 0x27;
-	LDI  R30,LOW(39)
+; 0000 0011 
+; 0000 0012     // Change frequency
+; 0000 0013     ICR1H = (int) ICR_Value / 256;
+	MOVW R26,R16
+	LDI  R30,LOW(256)
+	LDI  R31,HIGH(256)
+	CALL __DIVW21
 	OUT  0x27,R30
-; 0000 0009     ICR1L = 0x0F;
-	LDI  R30,LOW(15)
+; 0000 0014     ICR1L = (int) ICR_Value % 256;
+	MOV  R30,R16
 	OUT  0x26,R30
-; 0000 000A     TCNT1=0x0;
+; 0000 0015 
+; 0000 0016     // Reset the counter
+; 0000 0017     TCNT1=0x0;
 	LDI  R30,LOW(0)
 	LDI  R31,HIGH(0)
 	OUT  0x2C+1,R31
 	OUT  0x2C,R30
-; 0000 000B     TCCR1B |= 2;
+; 0000 0018 
+; 0000 0019     // Start the counter and prescaler
+; 0000 001A     TCCR1B |= 2;
 	IN   R30,0x2E
 	ORI  R30,2
 	OUT  0x2E,R30
-; 0000 000C }
+; 0000 001B 
+; 0000 001C     // No phase shift for the first one
+; 0000 001D     OCR1A = 0;
+	LDI  R30,LOW(0)
+	LDI  R31,HIGH(0)
+	OUT  0x2A+1,R31
+	OUT  0x2A,R30
+; 0000 001E }
+	RJMP _0x2000001
+; .FEND
+;
+;void setPhase(int phase)
+; 0000 0021 {
+_setPhase:
+; .FSTART _setPhase
+; 0000 0022     int result = 0;
+; 0000 0023 
+; 0000 0024     // int first_ = topValueToggle / 2;
+; 0000 0025     // int second_ = topValueToggle / 2 - 1;
+; 0000 0026 
+; 0000 0027     // int result = (first_ * phase) / 180;
+; 0000 0028     // result = result + ((second_ * phase) / 180);
+; 0000 0029 
+; 0000 002A     topValueToggle = topValueToggle - 1;
+	ST   -Y,R27
+	ST   -Y,R26
+	ST   -Y,R17
+	ST   -Y,R16
+;	phase -> Y+2
+;	result -> R16,R17
+	__GETWRN 16,17,0
+	MOVW R30,R4
+	SBIW R30,1
+	MOVW R4,R30
+; 0000 002B     result = topValueToggle * phase / 180;
+	LDD  R30,Y+2
+	LDD  R31,Y+2+1
+	MOVW R26,R4
+	CALL __MULW12
+	MOVW R26,R30
+	LDI  R30,LOW(180)
+	LDI  R31,HIGH(180)
+	CALL __DIVW21
+	MOVW R16,R30
+; 0000 002C     OCR1B = (int) result;
+	__OUTWR 16,17,40
+; 0000 002D }
+_0x2000001:
+	LDD  R17,Y+1
+	LDD  R16,Y+0
+	ADIW R28,4
 	RET
 ; .FEND
 ;
 ;
 ;void main(void)
-; 0000 0010 {
+; 0000 0031 {
 _main:
 ; .FSTART _main
-; 0000 0011     int cnt = 0;
-; 0000 0012     DDRB = 0xFF;
+; 0000 0032     int cnt = 0;
+; 0000 0033     DDRD = 0xFF;
 ;	cnt -> R16,R17
 	__GETWRN 16,17,0
 	LDI  R30,LOW(255)
-	OUT  0x17,R30
-; 0000 0013     DDRD = 0xFF;
 	OUT  0x11,R30
-; 0000 0014     setupTimer();
+; 0000 0034     setupTimer(5000);
+	LDI  R26,LOW(5000)
+	LDI  R27,HIGH(5000)
 	RCALL _setupTimer
-; 0000 0015     OCR1A = 0;
-	LDI  R30,LOW(0)
-	LDI  R31,HIGH(0)
-	OUT  0x2A+1,R31
-	OUT  0x2A,R30
-; 0000 0016     while (1)
+; 0000 0035     while (1)
 _0x3:
-; 0000 0017     {
-; 0000 0018         for(cnt=1;cnt<100;cnt++)
-	__GETWRN 16,17,1
+; 0000 0036     {
+; 0000 0037         for(cnt=0; cnt <= 180;)
+	__GETWRN 16,17,0
 _0x7:
-	__CPWRN 16,17,100
+	__CPWRN 16,17,181
 	BRGE _0x8
-; 0000 0019         {
-; 0000 001A             OCR1B = (int) (100 * cnt - 1);
-	MOVW R30,R16
-	LDI  R26,LOW(100)
-	LDI  R27,HIGH(100)
-	CALL __MULW12
-	SBIW R30,1
-	OUT  0x28+1,R31
-	OUT  0x28,R30
-; 0000 001B             delay_ms(100);
-	LDI  R26,LOW(100)
-	LDI  R27,0
+; 0000 0038         {
+; 0000 0039             setPhase(cnt);
+	MOVW R26,R16
+	RCALL _setPhase
+; 0000 003A             cnt = cnt + 10;
+	__ADDWRN 16,17,10
+; 0000 003B             delay_ms(500);
+	LDI  R26,LOW(500)
+	LDI  R27,HIGH(500)
 	CALL _delay_ms
-; 0000 001C         }
-	__ADDWRN 16,17,1
+; 0000 003C         }
 	RJMP _0x7
 _0x8:
-; 0000 001D     }
+; 0000 003D     }
 	RJMP _0x3
-; 0000 001E }
+; 0000 003E }
 _0x9:
 	RJMP _0x9
 ; .FEND
@@ -1279,6 +1395,23 @@ __ANEGW1:
 	SBCI R31,0
 	RET
 
+__ANEGD1:
+	COM  R31
+	COM  R22
+	COM  R23
+	NEG  R30
+	SBCI R31,-1
+	SBCI R22,-1
+	SBCI R23,-1
+	RET
+
+__CWD1:
+	MOV  R22,R31
+	ADD  R22,R22
+	SBC  R22,R22
+	MOV  R23,R22
+	RET
+
 __MULW12U:
 	MUL  R31,R26
 	MOV  R31,R0
@@ -1297,6 +1430,88 @@ __MULW12:
 __MULW121:
 	RET
 
+__DIVW21U:
+	CLR  R0
+	CLR  R1
+	LDI  R25,16
+__DIVW21U1:
+	LSL  R26
+	ROL  R27
+	ROL  R0
+	ROL  R1
+	SUB  R0,R30
+	SBC  R1,R31
+	BRCC __DIVW21U2
+	ADD  R0,R30
+	ADC  R1,R31
+	RJMP __DIVW21U3
+__DIVW21U2:
+	SBR  R26,1
+__DIVW21U3:
+	DEC  R25
+	BRNE __DIVW21U1
+	MOVW R30,R26
+	MOVW R26,R0
+	RET
+
+__DIVW21:
+	RCALL __CHKSIGNW
+	RCALL __DIVW21U
+	BRTC __DIVW211
+	RCALL __ANEGW1
+__DIVW211:
+	RET
+
+__DIVD21U:
+	PUSH R19
+	PUSH R20
+	PUSH R21
+	CLR  R0
+	CLR  R1
+	CLR  R20
+	CLR  R21
+	LDI  R19,32
+__DIVD21U1:
+	LSL  R26
+	ROL  R27
+	ROL  R24
+	ROL  R25
+	ROL  R0
+	ROL  R1
+	ROL  R20
+	ROL  R21
+	SUB  R0,R30
+	SBC  R1,R31
+	SBC  R20,R22
+	SBC  R21,R23
+	BRCC __DIVD21U2
+	ADD  R0,R30
+	ADC  R1,R31
+	ADC  R20,R22
+	ADC  R21,R23
+	RJMP __DIVD21U3
+__DIVD21U2:
+	SBR  R26,1
+__DIVD21U3:
+	DEC  R19
+	BRNE __DIVD21U1
+	MOVW R30,R26
+	MOVW R22,R24
+	MOVW R26,R0
+	MOVW R24,R20
+	POP  R21
+	POP  R20
+	POP  R19
+	RET
+
+__DIVD21:
+	RCALL __CHKSIGND
+	RCALL __DIVD21U
+	BRTC __DIVD211
+	RCALL __ANEGD1
+__DIVD211:
+	RET
+
 __CHKSIGNW:
 	CLT
 	SBRS R31,7
@@ -1313,6 +1528,29 @@ __CHKSW1:
 	INC  R0
 	BST  R0,0
 __CHKSW2:
+	RET
+
+__CHKSIGND:
+	CLT
+	SBRS R23,7
+	RJMP __CHKSD1
+	RCALL __ANEGD1
+	SET
+__CHKSD1:
+	SBRS R25,7
+	RJMP __CHKSD2
+	CLR  R0
+	COM  R26
+	COM  R27
+	COM  R24
+	COM  R25
+	ADIW R26,1
+	ADC  R24,R0
+	ADC  R25,R0
+	BLD  R0,0
+	INC  R0
+	BST  R0,0
+__CHKSD2:
 	RET
 
 ;END OF CODE MARKER

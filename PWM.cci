@@ -1,5 +1,7 @@
-VERSION:3 SOURCE_TIMESTAMP:523563AD
+VERSION:3 SOURCE_TIMESTAMP:52356B49
 NODE:I LEVEL:0 LINE:1 "C:\cvavr\inc\io.h"
 NODE:I LEVEL:0 LINE:2 "C:\cvavr\inc\delay.h"
-NODE:F LEVEL:0 LINE:4 "setupTimer(void)"
-NODE:F LEVEL:0 LINE:15 "main(void)"
+NODE:V LEVEL:0 LINE:5 "topValueToggle -> R4,R5"
+NODE:F LEVEL:0 LINE:7 "setupTimer(int freq)"
+NODE:F LEVEL:0 LINE:32 "setPhase(int phase)"
+NODE:F LEVEL:0 LINE:48 "main(void)"

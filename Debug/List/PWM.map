@@ -9,9 +9,11 @@ Variable                                                                        
 Register Allocation
 Variable                                                                          Register  Size
 ------------------------------------------------------------------------------------------------
+topValueToggle                                                                    R4,R5        2
 
 FLASH Allocation [words]
 Function                                                                          Address   Size
 ------------------------------------------------------------------------------------------------
-setupTimer                                                                        0x00045     16
-main                                                                              0x00055     33
+setupTimer                                                                        0x0005C     42
+setPhase                                                                          0x00086     26
+main                                                                              0x000A0     24
